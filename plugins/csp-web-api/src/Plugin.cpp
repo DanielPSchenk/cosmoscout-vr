@@ -299,6 +299,13 @@ void Plugin::init() {
     mg_write(conn, mCapture.data(), mCapture.size());
   }));
 
+  mHandlers.emplace("/get-sun-direction", std::make_unique<GetHandler>([this](mg_connection* conn){
+    std::unique_lock<std::mutex> lock(mSunDirMutex);
+    glm::dvec3 solarSystem = mSolarSystem->getSunDirection(mSolarSystem->getObserver().getPosition());
+    
+
+  }));
+
   // All POST requests received on /run-js are stored in a queue. They are executed in the main
   // thread in the Plugin::update() method further below.
   mHandlers.emplace("/run-js", std::make_unique<PostHandler>([this](mg_connection* conn) {

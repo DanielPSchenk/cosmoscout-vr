@@ -80,6 +80,9 @@ class Plugin : public cs::core::PluginBase {
   std::mutex  mLoadMutex;
   std::string mLoadSettings;
 
+  // Member for the /get-sun-direction endpoint
+  std::mutex mSunDirMutex;
+
   // Members for the /run-js endpoint
   std::mutex              mJavaScriptCallsMutex;
   std::queue<std::string> mJavaScriptCalls;
