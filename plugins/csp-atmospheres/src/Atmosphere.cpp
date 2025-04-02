@@ -132,6 +132,7 @@ void Atmosphere::configure(Plugin::Settings::Atmosphere const& settings) {
 
         auto start_time = std::chrono::high_resolution_clock::now();
         int resx, resy, resz, channels;
+        // higher 3d texture resolutions are more expensive and are not guaranteed to be supported on all systems
         resx = 32;
         resy = 32;
         resz = 32;
@@ -195,17 +196,6 @@ void Atmosphere::configure(Plugin::Settings::Atmosphere const& settings) {
       mShaderDirty = true;
     }
 
-    if(mSettings.mBottomTexture != settings.mBottomTexture){
-      if (settings.mBottomTexture.has_value() && !settings.mBottomTexture.value().empty()) {
-        mBottomTexture = cs::graphics::TextureLoader::loadFromFile(settings.mBottomTexture.value());
-        mBottomTexture->SetWrapS(GL_CLAMP);
-        mBottomTexture->SetWrapT(GL_CLAMP);
-      }else{
-        mBottomTexture.reset();
-      }
-      mShaderDirty = true;
-    }
-
     if(mSettings.mTopTexture != settings.mTopTexture){
       if (settings.mTopTexture.has_value() && !settings.mTopTexture.value().empty()) {
         mTopTexture = cs::graphics::TextureLoader::loadFromFile(settings.mTopTexture.value());
@@ -216,9 +206,7 @@ void Atmosphere::configure(Plugin::Settings::Atmosphere const& settings) {
       }
       mShaderDirty = true;
     }
-    logger().info("read top texture at " + settings.mTopTexture.value());
-    logger().info("read bottom texture at " + settings.mBottomTexture.value());
-    
+    logger().info("read top texture at " + settings.mTopTexture.value());  
 
     // Reload the limb luminance texture if required.
     if (mSettings.mLimbLuminanceTexture != settings.mLimbLuminanceTexture) {
@@ -244,7 +232,7 @@ void Atmosphere::configure(Plugin::Settings::Atmosphere const& settings) {
         mSettings.mEnableWaves != settings.mEnableWaves ||
         mSettings.mEnableClouds != settings.mEnableClouds ||
         mSettings.mEnableLimbLuminance != settings.mEnableLimbLuminance ||
-        mSettings.mOldClouds != settings.mOldClouds) {
+        mSettings.mAdvancedClouds != settings.mAdvancedClouds) {
       mShaderDirty = true;
     }
 
@@ -272,9 +260,9 @@ void Atmosphere::createShader(ShaderType type, VistaGLSLShader& shader, Uniforms
   cs::utils::replaceString(
       sFrag, "ATMOSPHERE_RADIUS", std::to_string(mRadii[0] + mSettings.mTopAltitude));
   cs::utils::replaceString(
-      sFrag, "ENABLE_CLOUDS", std::to_string(mSettings.mEnableClouds.get() && mCloudTexture && mTopTexture && mBottomTexture));
+      sFrag, "ENABLE_CLOUDS", std::to_string(mSettings.mEnableClouds.get() && mCloudTexture && mTopTexture));
   cs::utils::replaceString(
-    sFrag, "OLD_CLOUDS", std::to_string(mSettings.mOldClouds.get()));
+    sFrag, "OLD_CLOUDS", std::to_string(!mSettings.mAdvancedClouds.get()));
   cs::utils::replaceString(sFrag, "ENABLE_LIMB_LUMINANCE",
       std::to_string(mSettings.mEnableLimbLuminance.get() && mLimbLuminanceTexture));
   cs::utils::replaceString(sFrag, "ENABLE_WATER", std::to_string(mSettings.mEnableWater.get()));
@@ -312,7 +300,6 @@ void Atmosphere::createShader(ShaderType type, VistaGLSLShader& shader, Uniforms
   uniforms.shadowCoordinates         = shader.GetUniformLocation("uShadowCoordinates");
   uniforms.noiseTexture              = shader.GetUniformLocation("uNoiseTexture");
   uniforms.noiseTexture2D            = shader.GetUniformLocation("uNoiseTexture2D");
-  uniforms.cloudBottom               = shader.GetUniformLocation("uCloudBottom");
   uniforms.cloudTop                  = shader.GetUniformLocation("uCloudTop");
 
 
@@ -534,12 +521,6 @@ bool Atmosphere::Do() {
     mAtmoShader.SetUniform(mAtmoUniforms.cloudTop, 5);
   }
 
-  if (mSettings.mEnableClouds.get() && mBottomTexture) {
-    mBottomTexture->Bind(GL_TEXTURE6);
-    mAtmoShader.SetUniform(mAtmoUniforms.cloudBottom, 6);
-  }
-  
-  
   if (mSettings.mEnableClouds.get() && mNoiseTexture2D) {
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_2D, mNoiseTexture2D);
