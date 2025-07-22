@@ -386,7 +386,7 @@ float INFINITY = 1 / 0.;
 // heights between which clouds appear
 float CUMULONIMBUS_START_HEIGHT = 1500;
 float CUMULONIMBUS_END_HEIGHT = 5000;
-float COVERAGE_MULTIPLIER = 2;
+float COVERAGE_EXPONENT = .5;
 float CLOUD_BASE_FRACTION = 0.;
 
 // cloud types are remapped from [0,1] so that all values above this become 1 
@@ -422,10 +422,10 @@ vec3 CLOUD_COLOR = vec3(1.);
 float MAXIMUM_DIST_BETWEEN_SAMPLES = 250;
 
 // adaptive step size parameters
-float CLOSE_STEP = 50;
+float CLOSE_STEP = 30;
 float MID_STEP = 100;
 float FAR_STEP = 200;
-float MID_DISTANCE = 70000;
+float MID_DISTANCE = 35000;
 float FAR_DISTANCE = 200000;
 int MAXIMUM_SAMPLES = 800;
 // get the cloud type at these texture coordinates
@@ -461,7 +461,7 @@ vec3 GetVerticalProfile(vec3 position){
   // "progress" in cloud from bottom to top in range 0 to 1
   float height_in_cloud = remap(length(position), PLANET_RADIUS + CUMULONIMBUS_START_HEIGHT, topAltitude, 0, 1);
   vec4 cloudConfig = textureLod(uCloudTypeTexture, vec2(cloudType, 1-height_in_cloud), 0);
-  return vec3(cloudType > 0 ? pow(cloudConfig.r, 1.5) : 0., cloudConfig.g, cloudConfig.b);
+  return vec3(remap(cloudConfig.r, .1, 1, 0, 1), cloudConfig.g, cloudConfig.b);
 }
 
 // get the density of clouds at a position in 3d space
@@ -471,24 +471,29 @@ float getCumuloNimbusDensity(vec3 position, vec3 cam_pos, bool high_res = true){
   float erosionStrength = cloudConfig.g;
   float hfStrength = cloudConfig.b;
   float cameraDist = length(cam_pos - position);
+  vec4 noise2Dl = textureLod(uNoiseTexture2D, getLngLat(position) * 1, 0);
   vec4 noise2D = textureLod(uNoiseTexture2D, getLngLat(position) * 5, 0);
 
-  float cloudDensity = remap(pow(1 - exp(-COVERAGE_MULTIPLIER * cloudBase), .4), .1, 1, 0, 1);
+  float cloudDensity = pow(cloudBase, COVERAGE_EXPONENT);
   
-  float lfInfluence = remap(erosionStrength, 0, .8, .05, 1.4);
-  float hfInfluence = .1 + .6 * hfStrength;
+  float lfInfluence = cloudConfig.g;
+  float hfInfluence = hfStrength;
   if(cameraDist < LF_END_DISTANCE){
-    vec4 lfNoises = textureLod(uNoiseTexture, position / 15000, 0);
+    vec4 lfNoises = textureLod(uNoiseTexture, position / 5000, 0);
     // blend between worley and perlin noises using a noise at a different frequency to reduce repetition
-    float blended_lf_noise = mix(lfNoises.r, 1 - lfNoises.b, noise2D.r);
+    float lr_worley_noise = (1 - lfNoises.b) * .8 + lfNoises.r * .2;
+    float lr_whispy_noise = lfNoises.r * .2 + lfNoises.g * .8;
+    float blended_lf_noise = mix(lr_worley_noise, lr_whispy_noise, noise2Dl.r);
     // when camDist is in the fade out range, the noise is mixed with 0.5
-    blended_lf_noise = mix(blended_lf_noise, .5, remap(cameraDist, LF_FADE_DISTANCE, LF_END_DISTANCE, 0, 1));
+    blended_lf_noise = mix(blended_lf_noise, .5, remap(cameraDist, LF_FADE_DISTANCE, LF_END_DISTANCE, 0, 1)) * .5 + .5 * noise2D.r;
     // using the formula from Andrew Schneider's SIGGRAPH presentations on Nubis
     cloudDensity = clamp(lfInfluence * blended_lf_noise - (lfInfluence - cloudDensity), 0, 1);
     
     if(high_res && cameraDist < HF_END_DISTANCE){
-      vec4 hf_noises = textureLod(uNoiseTexture, position / 3521, 0);
-      float blended_hf_noise = mix(hf_noises.r, 1 - hf_noises.b, noise2D.b);
+      vec4 hf_noises = textureLod(uNoiseTexture, position / 1000, 0);
+      float hr_worley_noise = (1 - hf_noises.b) * .5 + lfNoises.r * .5;
+      float hr_whispy_noise = hf_noises.b * .3 + lfNoises.g * .7;
+      float blended_hf_noise = mix(hr_worley_noise, hr_whispy_noise, lfNoises.r);
       blended_hf_noise = mix(blended_hf_noise, .5,  remap(cameraDist, HF_FADE_DISTANCE, HF_END_DISTANCE, 0, 1));
       cloudDensity = clamp(hfInfluence * blended_hf_noise - (hfInfluence - cloudDensity), 0, 1);
     }else{
@@ -504,7 +509,10 @@ float getCumuloNimbusDensity(vec3 position, vec3 cam_pos, bool high_res = true){
   if(isnan(cloudDensity)){
     cloudDensity = 0;
   }
-  return remap(cloudDensity, .1, 1, 0, 1);
+
+  float h = length(position) - PLANET_RADIUS;
+  float height_factor = exp(-h / 4000);
+  return cloudDensity * height_factor;
 }
 
 // cheap check if a location is guaranteed to not contain any clouds
@@ -522,7 +530,7 @@ bool CumuloNimbusGuaranteedFree(vec3 position){
   float height_in_cloud = remap(length(position), PLANET_RADIUS + CUMULONIMBUS_START_HEIGHT, topAltitude, 0, 1);
   // when the position is above this function of the cloud type, it is assumed cloud-free
   // you might have to change this when modifying the cloud type texture
-  return height_in_cloud > pow(cloudType, .2) * 1.2;
+  return cloudType == 0;//pow(cloudType, .2) * 1.2;
 }
 
 // calculate a cheap approximation of the maximum distance that can be safely skipped
@@ -558,20 +566,20 @@ float CumuloNimbusFreeDistance(vec3 position, vec3 dir, float dist_from_camera, 
 }
 
 // mixture of HG, CS and Draine's phase proposed in "An Approximate Mie Scattering Function for Fog and Cloud Rendering"
-float phaseComponent(float alpha, float g, float cos){
-  return 1. / 4. / PI * (1 - pow(g, 2)) / pow(1 + pow(g, 2) - 2  * g * cos, 3/2.) * (1 + alpha * pow(cos, 2)) / (1 + alpha * (1 + 2 * pow(g, 2)) / 3.);
+float phaseComponent(float alpha, float g, float c){
+  return 1. / 4. / PI * (1 - pow(g, 2)) / pow(1 + pow(g, 2) - 2  * g * c, 3/2.) * (1 + alpha * pow(c, 2)) / (1 + alpha * (1 + 2 * pow(g, 2)) / 3.);
 }
 
 // phase function from "An Approximate Mie Scattering Function for Fog and Cloud Rendering"
 float cloudPhase(vec3 r1, vec3 r2){
-  float cos = dot(normalize(r1), normalize(-r2));
+  float c = dot(normalize(r1), normalize(-r2));
   // particle size parameter
   float d = 10e-6;
   float g_HG = exp(-0.0990567 / (d - 1.67154));
   float g_D = exp(-2.20679 / (d + 3.91029) - 0.428934);
   float alpha = exp(3.62489) - 8.29288 / (d + 5.52825);
   float omega_D = exp(-.599085 / (d - .641583)) - .665888;
-  return (1 - omega_D) * phaseComponent(0, g_HG, cos) + omega_D * phaseComponent(alpha, g_D, cos);
+  return (1 - omega_D) * phaseComponent(0, g_HG, c) + omega_D * phaseComponent(alpha, g_D, c);
 }
 
 
