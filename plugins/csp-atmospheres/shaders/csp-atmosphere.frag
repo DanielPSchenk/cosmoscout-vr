@@ -423,14 +423,15 @@ vec3 CLOUD_COLOR = vec3(1.);
 float MAXIMUM_DIST_BETWEEN_SAMPLES = 250;
 
 // adaptive step size parameters
-float CLOSE_STEP = 30;
-float MID_STEP = 100;
+float CLOSE_STEP = 50;
+float MID_STEP = 200;
 float FAR_STEP = 500;
-float MID_DISTANCE = 100000;
+float MID_DISTANCE = 50000;
 float FAR_DISTANCE = 200000;
 int MAXIMUM_SAMPLES = 400;
 float CLOUD_CUTOFF = .1;
 bool SAMPLE_JITTER = true;
+float JITTER_INTENSITY = .9;
 bool SECONDARY_RAYS = true;
 // get the cloud type at these texture coordinates
 // adds high frequency noises to the values from the cloud texture to replace coarse
@@ -533,7 +534,7 @@ float CumuloNimbusFreeDistance(vec3 position, vec3 dir, float dist_from_camera, 
     int num_samples = 10;
     float dist_to_cover = interval_end - dist_from_camera;
     // further away from the camera, slight flickering of small clouds matters less
-    float base_step = remap(dist_from_camera, 0, 200000, 100, 2000);
+    float base_step = remap(dist_from_camera, 0, FAR_DISTANCE, 100, 1000);
     if(num_samples * base_step > dist_to_cover){
       base_step = dist_to_cover / num_samples;
     }
@@ -601,22 +602,26 @@ float raymarchTransmittance(vec3 rayOrigin, vec3 rayDir, vec2 interval, vec3 cam
   float interval_length = interval.y - interval.x;
 
   float last_extinction = getCloudDensity(rayOrigin, cam_pos).x * DENSITY_MULTIPLIER * (1+ABSORBED_FRACTION);
-
+  vec3 position = rayOrigin;
   for(int i = 1; i <= samples; ++i){
+    float jitter_value = SAMPLE_JITTER ? (hash33(position).x - .5) * .9 : 0;
     // more samples in the close vicinity of the point to capture self-shadowing of smaller clouds with fewer samples
-    float progress = pow(float(i) / float(samples), 2);
+    float progress = pow((float(i) + jitter_value) / float(samples), 2);
     float t_now = remap(progress, 0, 1, interval.x, interval.y);
 
     float dist = t_now - t_last;
-    vec3 position = rayOrigin + rayDir * t_now;
-    float local_density = getCloudDensity(position, cam_pos, false).x;
+    position = rayOrigin + rayDir * t_now;
 
-    float scatter_coefficient = local_density * DENSITY_MULTIPLIER;
-    float extinction = scatter_coefficient * (1+ABSORBED_FRACTION);
-    float clamped_dist = clamp(dist, 0, MAXIMUM_DIST_BETWEEN_SAMPLES);
-    float extinction_along_segment = exp(-(extinction + last_extinction) * .5 * clamped_dist);
-    path_transmittance *= extinction_along_segment;
-    last_extinction = extinction;
+    if(!CumuloNimbusGuaranteedFree(position)){
+      float local_density = getCloudDensity(position, cam_pos, false).x;
+
+      float scatter_coefficient = local_density * DENSITY_MULTIPLIER;
+      float extinction = scatter_coefficient * (1+ABSORBED_FRACTION);
+      float clamped_dist = clamp(dist, 0, MAXIMUM_DIST_BETWEEN_SAMPLES);
+      float extinction_along_segment = exp(-(extinction + last_extinction) * .5 * clamped_dist);
+      path_transmittance *= extinction_along_segment;
+      last_extinction = extinction;
+    }
   }
   return path_transmittance;
 }
@@ -691,23 +696,26 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
     float samples_taken_multiplier = remap(float(samples_taken) / MAXIMUM_SAMPLES, 0, 1, 1, 10);
     // step size is decreased when the interval is short
     float short_domain_multiplier = remap(interval_length, 0, 30000, .1, 1);
+    short_domain_multiplier = remap(t_now, 0, MID_DISTANCE, short_domain_multiplier, 1);
     
-    float near_cloud_multiplier = remap(model_density, .5 * CLOUD_CUTOFF, CLOUD_CUTOFF, 1, .1);
+    float near_cloud_multiplier = remap(model_density, .5 * CLOUD_CUTOFF, CLOUD_CUTOFF, 1, .2);
     near_cloud_multiplier = remap(t_now, 0, 30000, near_cloud_multiplier, 1);
     near_cloud_multiplier = in_cloud ? 1 : near_cloud_multiplier;
 
-    float JITTER_INTENSITY = .2;
-    float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY, 1 + JITTER_INTENSITY);
+    float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
     jitter_multiplier = SAMPLE_JITTER ? jitter_multiplier : 1;
     
     // there are two parameterized intervals with different functions for the step size as a function of distance from camera
     // Note that discontinuities in this function are a VERY BAD idea and give weird artifacts
     float step = CLOSE_STEP;
-    if(distance_in_interval < MID_DISTANCE){
-      step = remap(distance_in_interval, 0, MID_DISTANCE, CLOSE_STEP, MID_STEP);
+    float relevant_distance = remap(t_now, 0, 200000, distance_in_interval, distance_in_interval * .5 + t_now * .5);
+    relevant_distance = distance_in_interval;
+    if(relevant_distance < MID_DISTANCE){
+      step = remap(relevant_distance, 0, MID_DISTANCE, CLOSE_STEP, MID_STEP);
     }else{
-      step = remap(distance_in_interval, MID_DISTANCE, FAR_DISTANCE, MID_STEP, FAR_STEP);
+      step = remap(relevant_distance, MID_DISTANCE, FAR_DISTANCE, MID_STEP, FAR_STEP);
     }
+    step = min(step, interval_length / 20);
     step /= interval_length;
     progress += step * low_transmittance_multiplier * samples_taken_multiplier * short_domain_multiplier * near_cloud_multiplier * jitter_multiplier;
   
@@ -718,64 +726,67 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
 
     //===== END OF STEP SIZE CONTROL =====
     //===== BEGIN OF SCATTERING INTEGRATION =====
-    density_struct = getCloudDensity(position, rayOrigin);
-    float local_density = density_struct.x;
-    model_density = density_struct.y;
-    maximum_density = clamp(max(maximum_density, local_density), 0, 1);
-    float scatter_coefficient = local_density * DENSITY_MULTIPLIER;
-    // the light available at that point
-    vec3 incoming_transmittance = vec3(1);
-    vec3 local_incoming = GetSkyLuminance(position, sunDir, sunDir, incoming_transmittance);
-    // using the luminance provided by the atmosphere model gives unstable results and artifacts
-    // the transmittance from the atmosphere model seems fine though
-    local_incoming = vec3(144809.5,129443.421875,127098.6484375) * incoming_transmittance;
+    float scatter_coefficient = 0;
+    if(!CumuloNimbusGuaranteedFree(position)){
+      density_struct = getCloudDensity(position, rayOrigin);
+      float local_density = density_struct.x;
+      model_density = density_struct.y;
+      maximum_density = clamp(max(maximum_density, local_density), 0, 1);
+      scatter_coefficient = local_density * DENSITY_MULTIPLIER;
+      // the light available at that point
+      vec3 incoming_transmittance = vec3(1);
+      vec3 local_incoming = GetSkyLuminance(position, sunDir, sunDir, incoming_transmittance);
+      // using the luminance provided by the atmosphere model gives unstable results and artifacts
+      // the transmittance from the atmosphere model seems fine though
+      local_incoming = vec3(144809.5,129443.421875,127098.6484375) * incoming_transmittance;
 
 
-    if(local_density > 0){
-      //===== INSIDE CLOUD =====
+      if(local_density > 0){
+        //===== INSIDE CLOUD =====
+        //return vec4(10000, 0, 0, 1);
+        if(!in_cloud){
+          // if entering cloud, integrate the inscattering from the regular atmosphere for the cloud-free interval
+          atmo_inscattering = GetSkyLuminanceToPoint(rayOrigin + rayDir * t_cloudfree_start, position, sunDir, atmo_transmittance);
+          inscattering_acc += path_transmittance * atmo_inscattering;
+          path_transmittance *= atmo_transmittance;
+        }
+        in_cloud = true;
+        in_cloud_counter +=1;
+        t_cloudfree_start = t_now;
 
-      if(!in_cloud){
-        // if entering cloud, integrate the inscattering from the regular atmosphere for the cloud-free interval
-        atmo_inscattering = GetSkyLuminanceToPoint(rayOrigin + rayDir * t_cloudfree_start, position, sunDir, atmo_transmittance);
-        inscattering_acc += path_transmittance * atmo_inscattering;
-        path_transmittance *= atmo_transmittance;
+        // clamp to keep segment lengths reasonable to not break the lighting model
+        float sdist = clamp(dist, 0, MAXIMUM_DIST_BETWEEN_SAMPLES);
+        // extinction coefficient. 
+        // Important to use midpoint for accurate Hillaire integration trick to work
+        float sigma_e = (scatter_coefficient + last_scatter_coefficient) / 2 * (1 + ABSORBED_FRACTION);
+        float transmittance_along_segment = exp(-sigma_e * sdist);
+        vec3 direct_incoming = local_incoming;
+
+        // get transmittance through clouds
+        vec2 top_intersection = intersectSphere(position, sunDir, PLANET_RADIUS + CUMULONIMBUS_END_HEIGHT);
+        int transmittance_samples = int(remap(path_transmittance.r, 0, 1, 10, 2));
+        float in_transmittance = SECONDARY_RAYS ? raymarchTransmittance(position, sunDir, vec2(0, top_intersection.y), rayOrigin, transmittance_samples) : 1;
+        direct_incoming *= in_transmittance;
+
+        // multiscattering approximation like in Nubis
+        float ms_volume = remap(scatter_coefficient * dist, .1, 1.0, 0.0, 1.0);
+        ms_volume *= pow(incoming_transmittance.r, 5);
+        ms_volume *= MS_INTENSITY;
+        vec3 msContrib = local_incoming * ms_volume;
+
+        // Hillaire integration trick for more consistent appearance for different step sizes
+        // considers the transmittance along the segment while integrating the scattering inside that segment
+        // breaks when not using midpoint extinction coefficient
+        vec3 S = scatter_coefficient * direct_incoming * phase * 4 * PI * CLOUD_COLOR + msContrib / sdist;
+        inscattering_acc += path_transmittance * (S - S * transmittance_along_segment) / sigma_e;
+
+        // reduce transmittance along the path
+        path_transmittance *= vec3(transmittance_along_segment);
+      }else{
+        //===== NOT INSIDE CLOUD =====
+        in_cloud = false;
+        in_cloud_counter = 0;
       }
-      in_cloud = true;
-      in_cloud_counter +=1;
-      t_cloudfree_start = t_now;
-
-      // clamp to keep segment lengths reasonable to not break the lighting model
-      float sdist = clamp(dist, 0, MAXIMUM_DIST_BETWEEN_SAMPLES);
-      // extinction coefficient. 
-      // Important to use midpoint for accurate Hillaire integration trick to work
-      float sigma_e = (scatter_coefficient + last_scatter_coefficient) / 2 * (1 + ABSORBED_FRACTION);
-      float transmittance_along_segment = exp(-sigma_e * sdist);
-      vec3 direct_incoming = local_incoming;
-    
-      // get transmittance through clouds
-      vec2 top_intersection = intersectSphere(position, sunDir, PLANET_RADIUS + CUMULONIMBUS_END_HEIGHT);
-      int transmittance_samples = int(remap(path_transmittance.r, 0, 1, 10, 2));
-      float in_transmittance = SECONDARY_RAYS ? raymarchTransmittance(position, sunDir, vec2(0, top_intersection.y), rayOrigin, transmittance_samples) : 1;
-      direct_incoming *= in_transmittance;
-
-      // multiscattering approximation like in Nubis
-      float ms_volume = remap(scatter_coefficient * dist, .1, 1.0, 0.0, 1.0);
-      ms_volume *= pow(incoming_transmittance.r, 5);
-      ms_volume *= MS_INTENSITY;
-      vec3 msContrib = local_incoming * ms_volume;
-
-      // Hillaire integration trick for more consistent appearance for different step sizes
-      // considers the transmittance along the segment while integrating the scattering inside that segment
-      // breaks when not using midpoint extinction coefficient
-      vec3 S = scatter_coefficient * direct_incoming * phase * 4 * PI * CLOUD_COLOR + msContrib / sdist;
-      inscattering_acc += path_transmittance * (S - S * transmittance_along_segment) / sigma_e;
-
-      // reduce transmittance along the path
-      path_transmittance *= vec3(transmittance_along_segment);
-    }else{
-      //===== NOT INSIDE CLOUD =====
-      in_cloud = false;
-      in_cloud_counter = 0;
     }
 
     //===== END OF SCATTERING INTEGRATION =====
@@ -1075,7 +1086,7 @@ float getCloudShadow(vec3 rayOrigin, vec3 rayDir) {
   vec2 topIntersections = intersectSphere(rayOrigin, rayDir, topAltitude);
   vec2 lowIntersections = intersectSphere(rayOrigin, rayDir, topAltitude - thickness);
   vec2 interval = vec2(lowIntersections.y, topIntersections.y);
-  int transmittance_samples = int(remap(interval.y - interval.x, 10000, 100000, 5, 30));
+  int transmittance_samples = int(remap(interval.y - interval.x, 10000, 100000, 10, 30));
   float transmittance = raymarchTransmittance(rayOrigin, rayDir, interval, rayOrigin, transmittance_samples);
   //float transmittance = clamp(raymarchingResult.a, .01, 1.); 
   return transmittance;
