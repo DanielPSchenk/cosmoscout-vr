@@ -57,6 +57,14 @@ class Plugin : public cs::core::PluginBase {
       std::optional<std::string> mLimbLuminanceTexture; ///< Path to the limb luminance texture.
 
       /// advanced cloud model additional parameters
+      cs::utils::DefaultProperty<float> mCloudQuality{1.f};
+      cs::utils::DefaultProperty<float> mCloudMaxSamples{400.f};
+      cs::utils::DefaultProperty<float> mCloudJitter{.5f};
+      cs::utils::DefaultProperty<float> mCloudTypeExponent{1.f};
+      cs::utils::DefaultProperty<float> mCloudRangeMin{0.f};
+      cs::utils::DefaultProperty<float> mCloudRangeMax{1.f};
+      cs::utils::DefaultProperty<float> mCloudTypeMin{0.f};
+      cs::utils::DefaultProperty<float> mCloudTypeMax{1.f};
       cs::utils::DefaultProperty<float> mCloudDensityMultiplier{1.f};
       cs::utils::DefaultProperty<float> mCloudAbsorption{0.f};
       cs::utils::DefaultProperty<float> mCloudCoverageExponent{1.f};
