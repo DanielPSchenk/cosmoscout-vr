@@ -309,6 +309,13 @@ void Atmosphere::createShader(ShaderType type, VistaGLSLShader& shader, Uniforms
   uniforms.noiseTexture              = shader.GetUniformLocation("uNoiseTexture");
   uniforms.noiseTexture2D            = shader.GetUniformLocation("uNoiseTexture2D");
   uniforms.cloudTypeTexture          = shader.GetUniformLocation("uCloudTypeTexture");
+  uniforms.cloudDensityMultiplier    = shader.GetUniformLocation("uCloudDensityMultiplier");
+  uniforms.cloudAbsorption           = shader.GetUniformLocation("uCloudAbsorption");
+  uniforms.coverageExponent          = shader.GetUniformLocation("uCoverageExponent");
+  uniforms.cloudCutoff               = shader.GetUniformLocation("uCloudCutoff");
+  uniforms.cloudLFRepetitionScale    = shader.GetUniformLocation("uCloudLFRepetitionScale");
+  uniforms.cloudHFRepetitionScale    = shader.GetUniformLocation("uCloudHFRepetitionScale");
+
 
   // We bind the eclipse shadow map to texture unit 3. The color and depth buffer are bound to 0 and
   // 1, 2 is used for the cloud map, 3 is used for the limb luminance texture.
@@ -374,6 +381,13 @@ bool Atmosphere::Do() {
   cs::utils::FrameStats::ScopedSamplesCounter samplesCounter("Atmosphere of " + mObjectName);
 
   if (mShaderDirty || mEclipseShadowReceiver->needsRecompilation()) {
+    if (mSettings.mCloudTypeTexture.has_value()) {
+      mCloudTypeTexture = cs::graphics::TextureLoader::loadFromFile(mSettings.mCloudTypeTexture.value());
+      mCloudTypeTexture->SetWrapS(GL_CLAMP);
+      mCloudTypeTexture->SetWrapT(GL_CLAMP);
+    }else{
+      mCloudTypeTexture.reset();
+    }
     updateShaders();
     mShaderDirty = false;
   }
@@ -489,6 +503,12 @@ bool Atmosphere::Do() {
     mCloudTexture->Bind(GL_TEXTURE2);
     mAtmoShader.SetUniform(mAtmoUniforms.cloudTexture, 2);
     mAtmoShader.SetUniform(mAtmoUniforms.cloudAltitude, mSettings.mCloudAltitude.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudDensityMultiplier, mSettings.mCloudDensityMultiplier.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudAbsorption, mSettings.mCloudAbsorption.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.coverageExponent, mSettings.mCloudCoverageExponent.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudCutoff, mSettings.mCloudCutoff.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudLFRepetitionScale, mSettings.mCloudLFRepetitionScale.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudHFRepetitionScale, mSettings.mCloudHFRepetitionScale.get());
   }
 
   if (mSettings.mEnableLimbLuminance.get() && mLimbLuminanceTexture) {

@@ -74,6 +74,12 @@ void from_json(nlohmann::json const& j, Plugin::Settings::Atmosphere& o) {
   cs::core::Settings::deserialize(j, "enableLimbLuminance", o.mEnableLimbLuminance);
   cs::core::Settings::deserialize(j, "limbLuminanceTexture", o.mLimbLuminanceTexture);
   cs::core::Settings::deserialize(j, "renderSkydome", o.mRenderSkydome);
+  cs::core::Settings::deserialize(j, "cloudDensityMultiplier", o.mCloudDensityMultiplier);
+  cs::core::Settings::deserialize(j, "cloudAbsorption", o.mCloudAbsorption);
+  cs::core::Settings::deserialize(j, "cloudCoverageExponent", o.mCloudCoverageExponent);
+  cs::core::Settings::deserialize(j, "cloudCutoff", o.mCloudCutoff);
+  cs::core::Settings::deserialize(j, "cloudLFRepetitionScale", o.mCloudLFRepetitionScale);
+  cs::core::Settings::deserialize(j, "cloudHFRepetitionScale", o.mCloudHFRepetitionScale);
 }
 
 void to_json(nlohmann::json& j, Plugin::Settings::Atmosphere const& o) {
@@ -92,6 +98,12 @@ void to_json(nlohmann::json& j, Plugin::Settings::Atmosphere const& o) {
   cs::core::Settings::serialize(j, "enableLimbLuminance", o.mEnableLimbLuminance);
   cs::core::Settings::serialize(j, "limbLuminanceTexture", o.mLimbLuminanceTexture);
   cs::core::Settings::serialize(j, "renderSkydome", o.mRenderSkydome);
+  cs::core::Settings::serialize(j, "cloudDensityMultiplier", o.mCloudDensityMultiplier);
+  cs::core::Settings::serialize(j, "cloudAbsorption", o.mCloudAbsorption);
+  cs::core::Settings::serialize(j, "cloudCoverageExponent", o.mCloudCoverageExponent);
+  cs::core::Settings::serialize(j, "cloudCutoff", o.mCloudCutoff);
+  cs::core::Settings::serialize(j, "cloudLFRepetitionScale", o.mCloudLFRepetitionScale);
+  cs::core::Settings::serialize(j, "cloudHFRepetitionScale", o.mCloudHFRepetitionScale);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -181,14 +193,14 @@ void Plugin::init() {
       }));
 
   mGuiManager->getGui()->registerCallback("atmosphere.setAdvancedClouds",
-      "Enables or disables old cloud system. New cloud system is used if set to false", std::function([this](bool enable) {
+      "Enables or disables old cloud system. New cloud system is used if set to false",
+      std::function([this](bool enable) {
         if (!mActiveAtmosphere.empty()) {
-          auto& settings          =  mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          auto& settings           = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
           settings.mAdvancedClouds = enable;
           mAtmospheres.at(mActiveAtmosphere)->configure(settings);
         }
-      })
-  );
+      }));
 
   mGuiManager->getGui()->registerCallback("atmosphere.setCloudAltitude",
       "Higher values create a more realistic atmosphere.", std::function([this](double value) {
@@ -211,6 +223,67 @@ void Plugin::init() {
   mGuiManager->getGui()->registerCallback("atmosphere.setEnable",
       "Enables or disables rendering of atmospheres.",
       std::function([this](bool enable) { mPluginSettings->mEnable = enable; }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudDensityMultiplier",
+      "Set a multiplier for the cloud density", std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings                   = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudDensityMultiplier = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudAbsorption",
+      "Set the fraction of light absorbed in interactions with the cloud medium. Real clouds "
+      "scatter almost all light with little absorption.",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings            = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudAbsorption = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudCoverageExponent",
+      "Exponent applied to the vertical profile before adding noises.",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings                  = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudCoverageExponent = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudCutoff",
+      "Clouds will be rendered for all locations where the cloud model produces a value larger "
+      "than the cutoff",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings        = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudCutoff = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudLFRepetitionScale",
+      "Set the distance (in meters) that one repetition of the low frequency noise texture covers",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings                   = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudLFRepetitionScale = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudHFRepetitionScale",
+      "Set the distance (in meters) that one repetition of the high frequency noise texture covers",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings                   = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudHFRepetitionScale = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
 
   // Load settings.
   onLoad();
@@ -238,6 +311,12 @@ void Plugin::deInit() {
   mGuiManager->getGui()->unregisterCallback("atmosphere.setAdvancedClouds");
   mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudAltitude");
   mGuiManager->getGui()->unregisterCallback("atmosphere.setEnableLimbLuminance");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudDensityMultiplier");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudAbsorption");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudCoverageExponent");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudCutoff");
+  mGuiManager->getGui()->unregisterCallback("setCloudLFRepetitionScale");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudHFRepetitionScale");
 
   mSolarSystem->pActiveObject.disconnect(mActiveObjectConnection);
   mAllSettings->onLoad().disconnect(mOnLoadConnection);

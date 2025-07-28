@@ -80,7 +80,14 @@ SPDX-License-Identifier: MIT
 <div class="row">
   <div class="col-4">Cloud Density</div>
   <div class="col-8">
-    <div data-callback="atmosphere.setCloudDensity"></div>
+    <div data-callback="atmosphere.setCloudDensityMultiplier"></div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-4">Cloud Absorption</div>
+  <div class="col-8">
+    <div data-callback="atmosphere.setCloudAbsorption"></div>
   </div>
 </div>
 
@@ -92,14 +99,21 @@ SPDX-License-Identifier: MIT
 </div>
 
 <div class="row">
-  <div class="col-4">Cloud Low Frequencies repetition scale</div>
+  <div class="col-4">Cloud Cutoff</div>
+  <div class="col-8">
+    <div data-callback="atmosphere.setCloudCutoff"></div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-4">Cloud LF wave length</div>
   <div class="col-8">
     <div data-callback="atmosphere.setCloudLFRepetitionScale"></div>
   </div>
 </div>
 
 <div class="row">
-  <div class="col-4">Cloud High Frequencies repetition scale</div>
+  <div class="col-4">Cloud HF wave length</div>
   <div class="col-8">
     <div data-callback="atmosphere.setCloudHFRepetitionScale"></div>
   </div>
