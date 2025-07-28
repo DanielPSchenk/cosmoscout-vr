@@ -76,6 +76,15 @@ class Atmosphere : public IVistaOpenGLDraw {
     uint32_t cloudLFRepetitionScale    = 0;
     uint32_t cloudHFRepetitionScale    = 0;
 
+    uint32_t cloudQuality              = 0;
+    uint32_t cloudMaxSamples           = 0;
+    uint32_t cloudJitter               = 0;
+    uint32_t cloudTypeExponent         = 0;
+    uint32_t cloudRangeMin             = 0;
+    uint32_t cloudRangeMax             = 0;
+    uint32_t cloudTypeMin              = 0;
+    uint32_t cloudTypeMax              = 0;
+
     // Only used by the panorama shader.
     uint32_t atmoPanoUniforms = 0;
 

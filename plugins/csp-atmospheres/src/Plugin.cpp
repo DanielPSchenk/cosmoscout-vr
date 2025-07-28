@@ -80,6 +80,14 @@ void from_json(nlohmann::json const& j, Plugin::Settings::Atmosphere& o) {
   cs::core::Settings::deserialize(j, "cloudCutoff", o.mCloudCutoff);
   cs::core::Settings::deserialize(j, "cloudLFRepetitionScale", o.mCloudLFRepetitionScale);
   cs::core::Settings::deserialize(j, "cloudHFRepetitionScale", o.mCloudHFRepetitionScale);
+
+  cs::core::Settings::deserialize(j, "cloudQuality", o.mCloudQuality);
+  cs::core::Settings::deserialize(j, "cloudMaxSamples", o.mCloudMaxSamples);
+  cs::core::Settings::deserialize(j, "cloudTypeExponent", o.mCloudTypeExponent);
+  cs::core::Settings::deserialize(j, "cloudRangeMin", o.mCloudRangeMin);
+  cs::core::Settings::deserialize(j, "cloudRangeMax", o.mCloudRangeMax);
+  cs::core::Settings::deserialize(j, "cloudTypeMin", o.mCloudTypeMin);
+  cs::core::Settings::deserialize(j, "cloudTypeMax", o.mCloudTypeMax);
 }
 
 void to_json(nlohmann::json& j, Plugin::Settings::Atmosphere const& o) {
@@ -104,6 +112,14 @@ void to_json(nlohmann::json& j, Plugin::Settings::Atmosphere const& o) {
   cs::core::Settings::serialize(j, "cloudCutoff", o.mCloudCutoff);
   cs::core::Settings::serialize(j, "cloudLFRepetitionScale", o.mCloudLFRepetitionScale);
   cs::core::Settings::serialize(j, "cloudHFRepetitionScale", o.mCloudHFRepetitionScale);
+
+  cs::core::Settings::serialize(j, "cloudQuality", o.mCloudQuality);
+  cs::core::Settings::serialize(j, "cloudMaxSamples", o.mCloudMaxSamples);
+  cs::core::Settings::serialize(j, "cloudTypeExponent", o.mCloudTypeExponent);
+  cs::core::Settings::serialize(j, "cloudRangeMin", o.mCloudRangeMin);
+  cs::core::Settings::serialize(j, "cloudRangeMax", o.mCloudRangeMax);
+  cs::core::Settings::serialize(j, "cloudTypeMin", o.mCloudTypeMin);
+  cs::core::Settings::serialize(j, "cloudTypeMax", o.mCloudTypeMax);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -224,6 +240,81 @@ void Plugin::init() {
       "Enables or disables rendering of atmospheres.",
       std::function([this](bool enable) { mPluginSettings->mEnable = enable; }));
 
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudQuality",
+      "Divide all step sizes by this value", std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings         = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudQuality = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudMaxSamples",
+    "Maximum number of samples taken on a single ray by the cloud system. Increase this value if you see pink artifacts in the sky.", std::function([this](double value) {
+      if (!mActiveAtmosphere.empty()) {
+        auto& settings         = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+        settings.mCloudMaxSamples = static_cast<float>(value);
+        mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+      }
+    }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudJitter",
+    "Set the intensity of random jittering of samples. Increase to break up banding artifacts. Decrease if images are too noisy.", std::function([this](double value) {
+      if (!mActiveAtmosphere.empty()) {
+        auto& settings         = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+        settings.mCloudJitter = static_cast<float>(value);
+        mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+      }
+    }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudTypeExponent",
+    "Exponent on the cloud type noise before remapping. values < 1 bias towards more dense cloud types",
+    std::function([this](double value) {
+      if (!mActiveAtmosphere.empty()) {
+        auto& settings          = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+        settings.mCloudTypeExponent = static_cast<float>(value);
+        mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+      }
+    }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudRangeMin",
+      "All cloud type noise values below this value are mapped to the minimum cloud type",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings          = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudRangeMin = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudRangeMax",
+      "All cloud type noise values above this value are mapped to the maximum cloud type",
+      std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings          = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudRangeMax = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudTypeMin",
+      "Minimum cloud type to be used", std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings         = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudTypeMin = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
+  mGuiManager->getGui()->registerCallback("atmosphere.setCloudTypeMax",
+      "Maximum cloud type to be used", std::function([this](double value) {
+        if (!mActiveAtmosphere.empty()) {
+          auto& settings         = mPluginSettings->mAtmospheres.at(mActiveAtmosphere);
+          settings.mCloudTypeMax = static_cast<float>(value);
+          mAtmospheres.at(mActiveAtmosphere)->configure(settings);
+        }
+      }));
+
   mGuiManager->getGui()->registerCallback("atmosphere.setCloudDensityMultiplier",
       "Set a multiplier for the cloud density", std::function([this](double value) {
         if (!mActiveAtmosphere.empty()) {
@@ -315,8 +406,16 @@ void Plugin::deInit() {
   mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudAbsorption");
   mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudCoverageExponent");
   mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudCutoff");
-  mGuiManager->getGui()->unregisterCallback("setCloudLFRepetitionScale");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudLFRepetitionScale");
   mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudHFRepetitionScale");
+
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudQuality");
+  mGuiManager->getGui()->unregisterCallback("atmpsphere.setCloudMaxSamples");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudTypeExponent");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudRangeMin");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudRangeMax");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudTypeMin");
+  mGuiManager->getGui()->unregisterCallback("atmosphere.setCloudTypeMax");
 
   mSolarSystem->pActiveObject.disconnect(mActiveObjectConnection);
   mAllSettings->onLoad().disconnect(mOnLoadConnection);

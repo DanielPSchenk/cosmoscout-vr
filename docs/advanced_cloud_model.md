@@ -4,7 +4,7 @@ SPDX-License-Identifier: CC-BY-4.0
  -->
 
 <p align="center"> 
-  <img src ="img/banner-advanced-clouds.jpg" />
+  <img src ="img/banner-advanced-clouds.png" />
 </p>
 
 # Advanced Cloud model
@@ -20,6 +20,8 @@ The advanced cloud model is a new addition to the atmospheres plug-in drawing he
 
 The texture is sampled depending on cloud type (U) and height in the cloud layer (V). The cloud type by default is calculated from the conventional cloud texture (+ some 2D noise and scaling), but you could also easily modify the shader code to read the cloud type directly from some texture.
 
+Use .png for cloud type textures for proper alpha channel support! The alpha channel can be used as a multiplier for the density of the clouds, for example to model fog or cirrus clouds.
+
 The channels of the texture represent
 1. The base density of the cloud. Unlike in Andrew Schneider's work, a single texture has to suffice for this because the cloud bottoms aren't as relevant for this system's main use case, generating views from space. In the shader code, the cloud type is remapped so that all values greater than `CLOUD_COVER_MAX` get assigned the maximum cloud type. This helps produce nice clean cloud tops for very large cloud formations.
 2. Influence strength of low-frequency noises.
@@ -28,6 +30,8 @@ The channels of the texture represent
 All channels can be fine-tuned for specific scenarios. Currently the system is configured for large scale cloud scapes seen from space by default.
 
 All noises are subject to a LOD system so that high-frequency noises are only sampled when they need to be. If you are changing the noise blending, you might also consider changing the LOD interval constants.
+
+The sample jitter and quality multiplier can be set through the gui and web api.
 
 ## References
 ### talks by Andrew Schneider at the SIGGRAPH advances in real-time rendering workshop

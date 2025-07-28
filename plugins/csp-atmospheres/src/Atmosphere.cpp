@@ -316,6 +316,15 @@ void Atmosphere::createShader(ShaderType type, VistaGLSLShader& shader, Uniforms
   uniforms.cloudLFRepetitionScale    = shader.GetUniformLocation("uCloudLFRepetitionScale");
   uniforms.cloudHFRepetitionScale    = shader.GetUniformLocation("uCloudHFRepetitionScale");
 
+  uniforms.cloudQuality              = shader.GetUniformLocation("CLOUD_QUALITY");
+  uniforms.cloudMaxSamples           = shader.GetUniformLocation("MAXIMUM_SAMPLES");
+  uniforms.cloudJitter               = shader.GetUniformLocation("JITTER_INTENSITY");
+  uniforms.cloudTypeExponent         = shader.GetUniformLocation("CLOUD_TYPE_EXPONENT");
+  uniforms.cloudRangeMin             = shader.GetUniformLocation("CLOUD_TYPE_RANGE_START");
+  uniforms.cloudRangeMax             = shader.GetUniformLocation("CLOUD_TYPE_RANGE_END");
+  uniforms.cloudTypeMin              = shader.GetUniformLocation("CLOUD_TYPE_MIN");
+  uniforms.cloudTypeMax              = shader.GetUniformLocation("CLOUD_TYPE_MAX");
+
 
   // We bind the eclipse shadow map to texture unit 3. The color and depth buffer are bound to 0 and
   // 1, 2 is used for the cloud map, 3 is used for the limb luminance texture.
@@ -509,6 +518,14 @@ bool Atmosphere::Do() {
     mAtmoShader.SetUniform(mAtmoUniforms.cloudCutoff, mSettings.mCloudCutoff.get());
     mAtmoShader.SetUniform(mAtmoUniforms.cloudLFRepetitionScale, mSettings.mCloudLFRepetitionScale.get());
     mAtmoShader.SetUniform(mAtmoUniforms.cloudHFRepetitionScale, mSettings.mCloudHFRepetitionScale.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudQuality, mSettings.mCloudQuality.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudMaxSamples, mSettings.mCloudMaxSamples.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudJitter, mSettings.mCloudJitter.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudTypeExponent, mSettings.mCloudTypeExponent.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudRangeMin, mSettings.mCloudRangeMin.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudRangeMax, mSettings.mCloudRangeMax.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudTypeMin, mSettings.mCloudTypeMin.get());
+    mAtmoShader.SetUniform(mAtmoUniforms.cloudTypeMax, mSettings.mCloudTypeMax.get());
   }
 
   if (mSettings.mEnableLimbLuminance.get() && mLimbLuminanceTexture) {

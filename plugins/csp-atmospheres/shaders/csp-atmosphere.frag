@@ -389,14 +389,14 @@ float CUMULONIMBUS_END_HEIGHT = 5000;
 uniform float uCoverageExponent = .5;
 float CLOUD_BASE_FRACTION = 0.;
 
-float CLOUD_TYPE_NOISE_WORLEY_SCALE=10;
+float CLOUD_TYPE_NOISE_WORLEY_SCALE=5.3;
 float CLOUD_TYPE_NOISE_PERLIN_SCALE=30;
 
-float CLOUD_TYPE_EXPONENT = 1.;
-float CLOUD_TYPE_RANGE_START = 0.;
-float CLOUD_TYPE_RANGE_END = 1.;
-float CLOUD_TYPE_MIN = 0.;
-float CLOUD_TYPE_MAX = 1.;
+uniform float CLOUD_TYPE_EXPONENT = 1.;
+uniform float CLOUD_TYPE_RANGE_START = 0.;
+uniform float CLOUD_TYPE_RANGE_END = 1.;
+uniform float CLOUD_TYPE_MIN = 0.;
+uniform float CLOUD_TYPE_MAX = 1.;
 
 // cloud types are remapped from [0,1] so that all values above this become 1 
 float CLOUD_COVER_MAX = .8;
@@ -434,21 +434,22 @@ float MAXIMUM_DIST_BETWEEN_SAMPLES = 250;
 
 // adaptive step size parameters
 
+uniform float CLOUD_QUALITY = 1;
 float HD_CLOSE_DISTANCE = 10000;
 float CLOSE_STEP = 100;
 float MID_STEP = 100;
 float FAR_STEP = 500;
 float MID_DISTANCE = 50000;
 float FAR_DISTANCE = 200000;
-int MAXIMUM_SAMPLES = 512;
+float MAXIMUM_SAMPLES = 400;
 uniform float uCloudCutoff = .2;
 bool SAMPLE_JITTER = true;
-float JITTER_INTENSITY = 0.5;
-float SECONDARY_JITTER_INTENSITY=.9;
+uniform float JITTER_INTENSITY = 0.5;
 bool SECONDARY_RAYS = true;
 
 uniform float uCloudLFRepetitionScale = 5000;
 uniform float uCloudHFRepetitionScale = 1190;
+
 // get the cloud type at these texture coordinates
 // adds high frequency noises to the values from the cloud texture to replace coarse
 // bilinear interpolation artifacts with smaller artifacts that are harder to notice
@@ -461,7 +462,7 @@ vec4 GetLocalCloudType(vec2 texCoords){
   float perlinNoise = perlinSample.g;
   // only the fringes of the clouds should be broken up, the cores should not become noisy
   float cloudType = worleyNoise * 0.5 + perlinNoise * .5;
-  return vec4(remap(cloudType, CLOUD_TYPE_RANGE_START, CLOUD_TYPE_RANGE_END, CLOUD_TYPE_MIN, CLOUD_TYPE_MAX), perlinSample);
+  return vec4(remap(pow(cloudType, CLOUD_TYPE_EXPONENT), CLOUD_TYPE_RANGE_START, CLOUD_TYPE_RANGE_END, CLOUD_TYPE_MIN, CLOUD_TYPE_MAX), perlinSample);
 }
 
 // get the low-fidelity cloud prior like in the Nubis cloud system
@@ -618,9 +619,9 @@ float raymarchTransmittance(vec3 rayOrigin, vec3 rayDir, vec2 interval, vec3 cam
 
   float last_extinction = getCloudDensity(rayOrigin, cam_pos).x * BASE_DENSITY * uCloudDensityMultiplier * (1+uCloudAbsorption);
   vec3 position = rayOrigin;
-  for(int i = 1; i <= samples; ++i){
+  for(int i = 1; i <= samples * CLOUD_QUALITY; ++i){
     float dist_to_cam = length(rayOrigin - cam_pos);
-    float jitter_value = SAMPLE_JITTER && jitter ? (hash33(position).x - .5) * SECONDARY_JITTER_INTENSITY : 0;
+    float jitter_value = SAMPLE_JITTER && jitter ? (hash33(position).x - .5) * JITTER_INTENSITY : 0;
     // reduce jitter on extremely long paths to avoid transmittance turning into pure noise. Introduces some banding
     jitter_value = remap(interval_length, 0, 500000, jitter_value, 0);
     // stop clouds seen from below from becoming extremely dark
@@ -729,6 +730,8 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
     float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
     jitter_multiplier = SAMPLE_JITTER ? remap(t_now, -100000, FAR_DISTANCE, 1, jitter_multiplier) : 1;
     
+    float quality_multiplier = 1 / CLOUD_QUALITY;
+
     // there are two parameterized intervals with different functions for the step size as a function of distance from camera
     // Note that discontinuities in this function are a VERY BAD idea and give weird artifacts
     float step = CLOSE_STEP;
@@ -741,7 +744,7 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
     }
     step = min(step, interval_length / 20);
     step /= interval_length;
-    progress += step * low_transmittance_multiplier * samples_taken_multiplier * short_domain_multiplier * near_cloud_multiplier * jitter_multiplier * close_to_camera_multiplier;
+    progress += step * low_transmittance_multiplier * samples_taken_multiplier * short_domain_multiplier * near_cloud_multiplier * jitter_multiplier * close_to_camera_multiplier * quality_multiplier;
   
     progress = clamp(progress, 0, 1);
     t_now = remap(progress, 0, 1, interval.x, interval.y);
@@ -831,9 +834,9 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
   float sample_ratio = float(samples_taken) / float(MAXIMUM_SAMPLES);
   //return vec4(sample_ratio, 1-sample_ratio, 0, 1)*10000;
   //return vec4(maximum_density, 1-maximum_density, 0, 1)*10000;
-  if(samples_taken == MAXIMUM_SAMPLES){
-    return vec4(100000, 0, 100000, 1);
-  }
+  //if(samples_taken == MAXIMUM_SAMPLES){
+  //  return vec4(100000, 0, 100000, 1);
+  //}
 
   // have to add atmo inscattering when exiting the interval
   if(!in_cloud){
