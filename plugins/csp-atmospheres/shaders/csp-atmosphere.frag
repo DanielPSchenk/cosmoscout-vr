@@ -389,6 +389,15 @@ float CUMULONIMBUS_END_HEIGHT = 5000;
 uniform float uCoverageExponent = .5;
 float CLOUD_BASE_FRACTION = 0.;
 
+float CLOUD_TYPE_NOISE_WORLEY_SCALE=10;
+float CLOUD_TYPE_NOISE_PERLIN_SCALE=30;
+
+float CLOUD_TYPE_EXPONENT = 1.;
+float CLOUD_TYPE_RANGE_START = 0.;
+float CLOUD_TYPE_RANGE_END = 1.;
+float CLOUD_TYPE_MIN = 0.;
+float CLOUD_TYPE_MAX = 1.;
+
 // cloud types are remapped from [0,1] so that all values above this become 1 
 float CLOUD_COVER_MAX = .8;
 
@@ -425,32 +434,34 @@ float MAXIMUM_DIST_BETWEEN_SAMPLES = 250;
 
 // adaptive step size parameters
 
-float HD_CLOSE_DISTANCE = 30000;
-float CLOSE_STEP = 50;
+float HD_CLOSE_DISTANCE = 10000;
+float CLOSE_STEP = 100;
 float MID_STEP = 100;
 float FAR_STEP = 500;
 float MID_DISTANCE = 50000;
 float FAR_DISTANCE = 200000;
 int MAXIMUM_SAMPLES = 512;
-uniform float uCloudCutoff = .1;
+uniform float uCloudCutoff = .2;
 bool SAMPLE_JITTER = true;
-float JITTER_INTENSITY = .5;
+float JITTER_INTENSITY = 0.5;
+float SECONDARY_JITTER_INTENSITY=.9;
 bool SECONDARY_RAYS = true;
 
 uniform float uCloudLFRepetitionScale = 5000;
-uniform float uCloudHFRepetitionScale = 768;
+uniform float uCloudHFRepetitionScale = 1190;
 // get the cloud type at these texture coordinates
 // adds high frequency noises to the values from the cloud texture to replace coarse
 // bilinear interpolation artifacts with smaller artifacts that are harder to notice
 // returns the noises alongside the result
 vec4 GetLocalCloudType(vec2 texCoords){
-  vec4 noiseSample = textureLod(uNoiseTexture2D, texCoords * 30, 0);
+  vec4 worleySample = textureLod(uNoiseTexture2D, texCoords * CLOUD_TYPE_NOISE_WORLEY_SCALE, 0);
+  vec4 perlinSample = textureLod(uNoiseTexture2D, texCoords * CLOUD_TYPE_NOISE_PERLIN_SCALE, 0);
   // map noises from [0, 1] to [-.5, .5]
-  float worleyNoise = noiseSample.b;
-  float perlinNoise = noiseSample.g;
+  float worleyNoise = worleySample.b;
+  float perlinNoise = perlinSample.g;
   // only the fringes of the clouds should be broken up, the cores should not become noisy
-  float cloudType = worleyNoise + perlinNoise;
-  return vec4(remap(cloudType, 0, 1, 0, 1), noiseSample);
+  float cloudType = worleyNoise * 0.5 + perlinNoise * .5;
+  return vec4(remap(cloudType, CLOUD_TYPE_RANGE_START, CLOUD_TYPE_RANGE_END, CLOUD_TYPE_MIN, CLOUD_TYPE_MAX), perlinSample);
 }
 
 // get the low-fidelity cloud prior like in the Nubis cloud system
@@ -470,7 +481,7 @@ vec4 GetVerticalProfile(vec3 position){
   // "progress" in cloud from bottom to top in range 0 to 1
   float height_in_cloud = remap(length(position), PLANET_RADIUS + CUMULONIMBUS_START_HEIGHT, topAltitude, 0, 1);
   vec4 cloudConfig = textureLod(uCloudTypeTexture, vec2(cloudType, 1-height_in_cloud), 0);
-  return vec4(cloudConfig.r * density * .95 / cloudConfig.a, cloudConfig.g / cloudConfig.a, cloudConfig.b / cloudConfig.a, cloudConfig.a);
+  return vec4(cloudConfig.r * density * .95, cloudConfig.g, cloudConfig.b, cloudConfig.a);
 }
 
 // get the density of clouds at a position in 3d space
@@ -527,7 +538,7 @@ vec2 getCumuloNimbusDensity(vec3 position, vec3 cam_pos, bool high_res = true){
 // check if vertical profile is too small too allow for a cloud here
 bool CumuloNimbusGuaranteedFree(vec3 position){
   vec4 vertical_profile = GetVerticalProfile(position);
-  return vertical_profile.r < uCloudCutoff;//pow(cloudType, .2) * 1.2;
+  return vertical_profile.r < .01;//pow(cloudType, .2) * 1.2;
 }
 
 // calculate a cheap approximation of the maximum distance that can be safely skipped
@@ -535,7 +546,7 @@ float CumuloNimbusFreeDistance(vec3 position, vec3 dir, float dist_from_camera, 
   if(!CumuloNimbusGuaranteedFree(position)){
     return 0;
   }else{
-    int num_samples = 10;
+    int num_samples = 20;
     float dist_to_cover = interval_end - dist_from_camera;
     // further away from the camera, slight flickering of small clouds matters less
     float base_step = remap(dist_from_camera, 0, FAR_DISTANCE, 100, 1000);
@@ -596,7 +607,7 @@ float henyeyGreenstein(vec3 r1, vec3 r2, float g){
 }
 
 // ray marching the transmittance through the cloud field. No adaptive step size used here
-float raymarchTransmittance(vec3 rayOrigin, vec3 rayDir, vec2 interval, vec3 cam_pos, int samples=10){
+float raymarchTransmittance(vec3 rayOrigin, vec3 rayDir, vec2 interval, vec3 cam_pos, int samples=10, bool jitter=true){
   if(interval.y < 0){
     return 1.;
   }
@@ -609,9 +620,9 @@ float raymarchTransmittance(vec3 rayOrigin, vec3 rayDir, vec2 interval, vec3 cam
   vec3 position = rayOrigin;
   for(int i = 1; i <= samples; ++i){
     float dist_to_cam = length(rayOrigin - cam_pos);
-    float jitter_value = SAMPLE_JITTER ? (hash33(position).x - .5) * .9 : 0;
+    float jitter_value = SAMPLE_JITTER && jitter ? (hash33(position).x - .5) * SECONDARY_JITTER_INTENSITY : 0;
     // reduce jitter on extremely long paths to avoid transmittance turning into pure noise. Introduces some banding
-    jitter_value = remap(interval_length, 0, 100000, jitter_value, 0);
+    jitter_value = remap(interval_length, 0, 500000, jitter_value, 0);
     // stop clouds seen from below from becoming extremely dark
     jitter_value = remap(i, 0, samples - 1, 0, jitter_value);
     // more samples in the close vicinity of the point to capture self-shadowing of smaller clouds with fewer samples
@@ -688,7 +699,7 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
 
     // Skipping regions that are guaranteed to be free of clouds
     bool skipped = false;
-    if(!in_cloud && t_now > HD_CLOSE_DISTANCE){
+    if(!in_cloud && false){
       float freeDistance = CumuloNimbusFreeDistance(position, rayDir, t_now, interval.y);
       if(freeDistance > 0){
         skipped_distance += freeDistance;
@@ -716,7 +727,7 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
     near_cloud_multiplier = remap(path_transmittance.r, 1, 0.2, near_cloud_multiplier, 1);
 
     float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
-    jitter_multiplier = SAMPLE_JITTER ? remap(t_now, -100000, MID_DISTANCE, 1, jitter_multiplier) : 1;
+    jitter_multiplier = SAMPLE_JITTER ? remap(t_now, -100000, FAR_DISTANCE, 1, jitter_multiplier) : 1;
     
     // there are two parameterized intervals with different functions for the step size as a function of distance from camera
     // Note that discontinuities in this function are a VERY BAD idea and give weird artifacts
@@ -752,7 +763,6 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
       // using the luminance provided by the atmosphere model gives unstable results and artifacts
       // the transmittance from the atmosphere model seems fine though
       local_incoming = vec3(144809.5,129443.421875,127098.6484375) * incoming_transmittance;
-
 
       if(local_density > 0){
         //===== INSIDE CLOUD =====
@@ -1099,8 +1109,8 @@ float getCloudShadow(vec3 rayOrigin, vec3 rayDir) {
   vec2 topIntersections = intersectSphere(rayOrigin, rayDir, topAltitude);
   vec2 lowIntersections = intersectSphere(rayOrigin, rayDir, topAltitude - thickness);
   vec2 interval = vec2(lowIntersections.y, topIntersections.y);
-  int transmittance_samples = int(remap(interval.y - interval.x, 10000, 100000, 10, 30));
-  float transmittance = raymarchTransmittance(rayOrigin, rayDir, interval, rayOrigin, transmittance_samples);
+  int transmittance_samples = int(remap(interval.y - interval.x, 10000, 100000, 50, 100));
+  float transmittance = raymarchTransmittance(rayOrigin, rayDir, interval, rayOrigin, transmittance_samples, false);
   //float transmittance = clamp(raymarchingResult.a, .01, 1.); 
   return transmittance;
   #endif
