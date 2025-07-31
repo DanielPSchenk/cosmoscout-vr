@@ -457,10 +457,8 @@ uniform float uCloudHFRepetitionScale = 1190;
 vec4 GetLocalCloudType(vec2 texCoords){
   vec4 worleySample = textureLod(uNoiseTexture2D, texCoords * CLOUD_TYPE_NOISE_WORLEY_SCALE, 0);
   vec4 perlinSample = textureLod(uNoiseTexture2D, texCoords * CLOUD_TYPE_NOISE_PERLIN_SCALE, 0);
-  // map noises from [0, 1] to [-.5, .5]
   float worleyNoise = worleySample.b;
   float perlinNoise = perlinSample.g;
-  // only the fringes of the clouds should be broken up, the cores should not become noisy
   float cloudType = worleyNoise * 0.5 + perlinNoise * .5;
   return vec4(remap(pow(cloudType, CLOUD_TYPE_EXPONENT), CLOUD_TYPE_RANGE_START, CLOUD_TYPE_RANGE_END, CLOUD_TYPE_MIN, CLOUD_TYPE_MAX), perlinSample);
 }
