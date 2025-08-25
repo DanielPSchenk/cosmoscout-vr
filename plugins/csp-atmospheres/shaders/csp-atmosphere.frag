@@ -665,7 +665,7 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
   float skipped_distance = 0;
 
   // assuming the sun is infinitely far away, one phase calculation is enough because only single scattering is used
-  float phase = cloudPhase(sunDir, -rayDir);
+  float phase = henyeyGreenstein(sunDir, -rayDir, .99);
  
   vec3 atmo_transmittance;
   vec3 atmo_inscattering;
@@ -680,11 +680,16 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
   vec2 density_struct = getCloudDensity(rayOrigin + rayDir * interval.x, rayOrigin);
   float start_density = density_struct.x;
   bool in_cloud = start_density > 0;
+  bool encounter_cloud = false;
   float in_cloud_counter = 0;
   float last_scatter_coefficient = start_density * BASE_DENSITY * uCloudDensityMultiplier;
   int samples_taken = 0;
   float maximum_density = 0;
   float model_density = density_struct.y;
+
+  float quality_multiplier = 1 / CLOUD_QUALITY;
+  float small_step = 200 / interval_length;
+  float big_step = 1000 / interval_length;
 
   //===== BEGIN OF RAY MARCHING LOOP ======
   
@@ -697,53 +702,63 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
 
 
     // Skipping regions that are guaranteed to be free of clouds
-    bool skipped = false;
-    if(!in_cloud && false){
-      float freeDistance = CumuloNimbusFreeDistance(position, rayDir, t_now, interval.y);
-      if(freeDistance > 0){
-        skipped_distance += freeDistance;
-        progress += freeDistance / interval_length;
-        skipped = true;
-      }
-    }
-    float distance_in_interval = t_now - interval.x;
-    
-    // step size is increased when transmittance is low
-    float low_transmittance_multiplier = remap(path_transmittance.r, .5, 0, 1, 3);
-    low_transmittance_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, 1, low_transmittance_multiplier);
+    //bool skipped = false;
+    //if(!in_cloud && false){
+    //  float freeDistance = CumuloNimbusFreeDistance(position, rayDir, t_now, interval.y);
+    //  if(freeDistance > 0){
+    //    skipped_distance += freeDistance;
+    //    progress += freeDistance / interval_length;
+    //    skipped = true;
+    //  }
+    //}
+    //float distance_in_interval = t_now - interval.x;
+    //
+    //// step size is increased when transmittance is low
+    //float low_transmittance_multiplier = remap(path_transmittance.r, .5, 0, 1, 3);
+    //low_transmittance_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, 1, low_transmittance_multiplier);
+//
+    //// step size is increased when many samples have been taken already
+    //float samples_taken_multiplier = remap(float(samples_taken) / MAXIMUM_SAMPLES, 0, 1, 1, 10);
+    //// step size is decreased when the interval is short
+    //float short_domain_multiplier = remap(interval_length, 0, HD_CLOSE_DISTANCE, .1, 1);
+    //short_domain_multiplier = remap(t_now, 0, MID_DISTANCE, short_domain_multiplier, 1);
+//
+    //float close_to_camera_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, .02, 1);
+    ////close_to_camera_multiplier = 1;
+    //
+    //float near_cloud_multiplier = remap(model_density, .5 * uCloudCutoff, uCloudCutoff, 1, .2);
+    //near_cloud_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, near_cloud_multiplier, 1);
+    //near_cloud_multiplier = remap(path_transmittance.r, 1, 0.2, near_cloud_multiplier, 1);
+//
+    //float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
+    //jitter_multiplier = SAMPLE_JITTER ? remap(t_now, -100000, FAR_DISTANCE, 1, jitter_multiplier) : 1;
+    //
+//
+    //// there are two parameterized intervals with different functions for the step size as a function of distance from camera
+    //// Note that discontinuities in this function are a VERY BAD idea and give weird artifacts
+    //float step = CLOSE_STEP;
+    //float relevant_distance = remap(t_now, 0, 200000, distance_in_interval, distance_in_interval * .5 + t_now * .5);
+    //relevant_distance = distance_in_interval;
+    //if(relevant_distance < MID_DISTANCE){
+    //  step = remap(relevant_distance, 0, MID_DISTANCE, CLOSE_STEP, MID_STEP);
+    //}else{
+    //  step = remap(relevant_distance, MID_DISTANCE, FAR_DISTANCE, MID_STEP, FAR_STEP);
+    //}
+    //step = min(step, interval_length / 20);
+    //step /= interval_length;
+    //progress += step * low_transmittance_multiplier * samples_taken_multiplier * short_domain_multiplier * near_cloud_multiplier * jitter_multiplier * close_to_camera_multiplier * quality_multiplier;
 
-    // step size is increased when many samples have been taken already
-    float samples_taken_multiplier = remap(float(samples_taken) / MAXIMUM_SAMPLES, 0, 1, 1, 10);
-    // step size is decreased when the interval is short
-    float short_domain_multiplier = remap(interval_length, 0, HD_CLOSE_DISTANCE, .1, 1);
-    short_domain_multiplier = remap(t_now, 0, MID_DISTANCE, short_domain_multiplier, 1);
-
-    float close_to_camera_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, .02, 1);
-    //close_to_camera_multiplier = 1;
-    
-    float near_cloud_multiplier = remap(model_density, .5 * uCloudCutoff, uCloudCutoff, 1, .2);
-    near_cloud_multiplier = remap(t_now, 0, HD_CLOSE_DISTANCE, near_cloud_multiplier, 1);
-    near_cloud_multiplier = remap(path_transmittance.r, 1, 0.2, near_cloud_multiplier, 1);
-
-    float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
-    jitter_multiplier = SAMPLE_JITTER ? remap(t_now, -100000, FAR_DISTANCE, 1, jitter_multiplier) : 1;
-    
-    float quality_multiplier = 1 / CLOUD_QUALITY;
-
-    // there are two parameterized intervals with different functions for the step size as a function of distance from camera
-    // Note that discontinuities in this function are a VERY BAD idea and give weird artifacts
-    float step = CLOSE_STEP;
-    float relevant_distance = remap(t_now, 0, 200000, distance_in_interval, distance_in_interval * .5 + t_now * .5);
-    relevant_distance = distance_in_interval;
-    if(relevant_distance < MID_DISTANCE){
-      step = remap(relevant_distance, 0, MID_DISTANCE, CLOSE_STEP, MID_STEP);
+    float step_size = 0;
+    if(in_cloud || encounter_cloud){
+      float jitter_multiplier = remap(hash33(position).x, 0, 1, 1 - JITTER_INTENSITY * .5, 1 + JITTER_INTENSITY * .5);
+      float close_up_multiplier = remap(t_now, 0, MID_DISTANCE, .1, 1);
+      step_size = small_step* jitter_multiplier * close_up_multiplier;
     }else{
-      step = remap(relevant_distance, MID_DISTANCE, FAR_DISTANCE, MID_STEP, FAR_STEP);
+      step_size = min(big_step, .02 * quality_multiplier);
     }
-    step = min(step, interval_length / 20);
-    step /= interval_length;
-    progress += step * low_transmittance_multiplier * samples_taken_multiplier * short_domain_multiplier * near_cloud_multiplier * jitter_multiplier * close_to_camera_multiplier * quality_multiplier;
-  
+    step_size = step_size * quality_multiplier;
+    progress += step_size;
+
     progress = clamp(progress, 0, 1);
     t_now = remap(progress, 0, 1, interval.x, interval.y);
     float dist = t_now - t_last;
@@ -766,6 +781,12 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
       local_incoming = vec3(144809.5,129443.421875,127098.6484375) * incoming_transmittance;
 
       if(local_density > 0){
+        if(!encounter_cloud){
+          encounter_cloud = true;
+          progress -= step_size;
+          continue;
+        }
+
         //===== INSIDE CLOUD =====
         //return vec4(10000, 0, 0, 1);
         if(!in_cloud){
@@ -809,6 +830,7 @@ vec4 raymarchInterval(vec3 rayOrigin, vec3 rayDir, vec3 sunDir, vec2 interval, o
       }else{
         //===== NOT INSIDE CLOUD =====
         in_cloud = false;
+        encounter_cloud = false;
         in_cloud_counter = 0;
       }
     }
